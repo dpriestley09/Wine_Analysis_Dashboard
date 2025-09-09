@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Wine Insights</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3-scale-chromatic.v2.min.js"></script>
+    <script src="https://unpkg.com/topojson-client@3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-container {
+            height: 300px;
+            width: 100%;
+        }
+        .map-container {
+            height: 500px;
+            width: 100%;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font: 12px sans-serif;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #key-gradient {
+            background: linear-gradient(to right, #440154, #482777, #3E4A89, #31688E, #26828E, #1F9E89, #35B779, #6DCD59, #B4DE2C, #FDE725);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-8 font-sans">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-center text-gray-900 mb-2">Global Wine Insights</h1>
+        <p class="text-center text-gray-600 mb-8">An interactive dashboard to explore wine ratings, price, and countries.</p>
+
+        <!-- Filters Section -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h2 class="text-2xl font-bold mb-4">Filters</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div>
+                    <label class="block text-gray-700 font-semibold mb-2">Country</label>
+                    <select id="country-select" class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200"></select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-semibold mb-2">Variety</label>
+                    <select id="variety-select" class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200"></select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-semibold mb-2">Price Range</label>
+                    <input type="range" id="price-range" min="0" max="4000" value="4000" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <div class="flex justify-between text-xs text-gray-500 mt-2">
+                        <span>$0</span>
+                        <span id="price-value">$4000</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics Section -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-lg p-6 text-center">
+                <p class="text-sm font-semibold text-gray-500">Average Rating</p>
+                <p id="avg-points-metric" class="text-3xl font-bold text-gray-900 mt-1"></p>
+            </div>
+            <div class="bg-white rounded-xl shadow-lg p-6 text-center">
+                <p class="text-sm font-semibold text-gray-500">Average Price</p>
+                <p id="avg-price-metric" class="text-3xl font-bold text-gray-900 mt-1"></p>
+            </div>
+            <div class="bg-white rounded-xl shadow-lg p-6 text-center">
+                <p class="text-sm font-semibold text-gray-500">Total Wines</p>
+                <p id="total-wines-metric" class="text-3xl font-bold text-gray-900 mt-1"></p>
+            </div>
+        </div>
+        
+        <!-- Overall Analysis Section -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h2 class="text-2xl font-bold mb-4">Overall Analysis</h2>
+            <p class="text-gray-600 mb-6">Explore the distribution of wines across countries and ratings for a high-level overview.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h3 class="text-xl font-semibold mb-2 text-center">Wines by Country</h3>
+                    <div class="chart-container">
+                        <canvas id="country-pie-chart"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-xl font-semibold mb-2 text-center">Rating Distribution</h3>
+                    <div class="chart-container">
+                        <canvas id="rating-histogram"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map & Price/Rating Comparison Section -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h2 class="text-2xl font-bold mb-4">Interactive Explorer</h2>
+            <div class="flex flex-col md:flex-row items-center justify-between mb-4">
+                <p class="text-gray-600">The map shows the average wine rating (points) for each country.</p>
+                <div id="map-key" class="flex flex-row items-center mt-4 md:mt-0">
+                    <p class="text-sm font-semibold mr-2">Rating:</p>
+                    <div id="key-gradient" class="w-32 h-4 rounded-lg mr-2"></div>
+                    <p class="text-sm">Low ➡️ High</p>
+                </div>
+            </div>
+            <div class="map-container">
+                <svg id="world-map" class="w-full h-full"></svg>
+            </div>
+        </div>
+        
+        <!-- Predictive Model Section -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h2 class="text-2xl font-bold mb-4">Wine Rating Predictor</h2>
+            <p class="text-gray-600 mb-4">Enter a price to get a predicted wine rating based on our model.</p>
+            <div class="flex items-end gap-4">
+                <div class="flex-grow">
+                    <label class="block text-gray-700 font-semibold mb-2">Enter a Price ($)</label>
+                    <input type="number" id="predictor-price" class="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200" placeholder="e.g., 50">
+                </div>
+                <button id="predict-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-200">Predict</button>
+            </div>
+            <div id="prediction-result" class="mt-4 text-xl font-bold text-gray-900"></div>
+        </div>
+    </div>
+
+    <script>
+        // Data from your analysis, hardcoded for the dashboard.
+        const wineData = [
+            {"country":"US","points":88,"price":14,"variety":"Chardonnay"},
+            {"country":"Portugal","points":88,"price":12,"variety":"Vinhas Velhas"},
+            {"country":"US","points":88,"price":13,"variety":"Chardonnay"},
+            {"country":"US","points":87,"price":14,"variety":"Sauvignon Blanc"},
+            {"country":"Spain","points":87,"price":15,"variety":"Tempranillo"},
+            {"country":"Italy","points":87,"price":25,"variety":"Pinot Grigio"},
+            {"country":"France","points":87,"price":18,"variety":"Pinot Noir"},
+            {"country":"France","points":87,"price":14,"variety":"Syrah"},
+            {"country":"Argentina","points":87,"price":20,"variety":"Malbec"},
+            {"country":"Germany","points":87,"price":17,"variety":"Riesling"},
+            {"country":"US","points":87,"price":22,"variety":"Cabernet Sauvignon"},
+            {"country":"Australia","points":87,"price":15,"variety":"Shiraz"},
+            {"country":"France","points":87,"price":22,"variety":"Merlot"},
+            {"country":"US","points":87,"price":15,"variety":"Zinfandel"},
+            {"country":"Italy","points":86,"price":24,"variety":"Sangiovese"},
+            {"country":"Chile","points":86,"price":10,"variety":"Cabernet Sauvignon"},
+            {"country":"Spain","points":86,"price":13,"variety":"Tempranillo"},
+            {"country":"US","points":86,"price":16,"variety":"Pinot Noir"},
+            {"country":"France","points":86,"price":13,"variety":"Sauvignon Blanc"},
+            {"country":"US","points":86,"price":17,"variety":"Chardonnay"},
+            {"country":"Italy","points":86,"price":20,"variety":"Rosato"},
+            {"country":"Italy","points":86,"price":13,"variety":"Verdicchio"},
+            {"country":"Chile","points":86,"price":14,"variety":"Cabernet Sauvignon"},
+            {"country":"US","points":86,"price":25,"variety":"Pinot Noir"},
+            {"country":"Australia","points":86,"price":18,"variety":"Shiraz"},
+            {"country":"US","points":86,"price":10,"variety":"Zinfandel"},
+            {"country":"US","points":86,"price":15,"variety":"Merlot"},
+            {"country":"Italy","points":86,"price":20,"variety":"Sangiovese"},
+            {"country":"US","points":86,"price":17,"variety":"Chardonnay"},
+            {"country":"France","points":86,"price":14,"variety":"Merlot"},
+            {"country":"Chile","points":85,"price":12,"variety":"Sauvignon Blanc"},
+            {"country":"France","points":85,"price":18,"variety":"Chardonnay"},
+            {"country":"Italy","points":85,"price":15,"variety":"Vermentino"},
+            {"country":"US","points":85,"price":18,"variety":"Pinot Noir"},
+            {"country":"US","points":85,"price":20,"variety":"Merlot"},
+            {"country":"Spain","points":85,"price":12,"variety":"Tempranillo"},
+            {"country":"Argentina","points":85,"price":15,"variety":"Malbec"},
+            {"country":"Chile","points":85,"price":10,"variety":"Sauvignon Blanc"},
+            {"country":"US","points":85,"price":15,"variety":"Pinot Noir"},
+            {"country":"Italy","points":85,"price":22,"variety":"Verdicchio"}
+        ];
+
+        const lr_coef = 0.00755;
+        const lr_intercept = 88.005;
+
+        const countries = [...new Set(wineData.map(wine => wine.country))].sort();
+        const varieties = [...new Set(wineData.map(wine => wine.variety))].sort();
+
+        const countrySelect = document.getElementById('country-select');
+        const varietySelect = document.getElementById('variety-select');
+        const priceRangeInput = document.getElementById('price-range');
+        const priceValueSpan = document.getElementById('price-value');
+
+        countries.forEach(country => {
+            const option = document.createElement('option');
+            option.value = country;
+            option.textContent = country;
+            countrySelect.appendChild(option);
+        });
+
+        varieties.forEach(variety => {
+            const option = document.createElement('option');
+            option.value = variety;
+            option.textContent = variety;
+            varietySelect.appendChild(option);
+        });
+
+        const tooltip = d3.select("body").append("div").attr("class", "tooltip").style("opacity", 0);
+        const svg = d3.select("#world-map");
+        const width = svg.node().getBoundingClientRect().width;
+        const height = svg.node().getBoundingClientRect().height;
+        const projection = d3.geoMercator().scale(150).center([0, 20]).translate([width / 2, height / 2]);
+        const path = d3.geoPath().projection(projection);
+        const colorScale = d3.scaleSequential(d3.interpolateViridis).domain([80, 95]);
+
+        let countryPieChart, ratingHistogram;
+        const countryPieCtx = document.getElementById('country-pie-chart').getContext('2d');
+        const ratingHistCtx = document.getElementById('rating-histogram').getContext('2d');
+
+        Promise.all([
+            d3.json("countries-110m.json")
+        ]).then(function(loadedData) {
+            const world = loadedData[0];
+            const countryData = topojson.feature(world, world.objects.countries).features;
+            
+            svg.append("g")
+                .selectAll("path")
+                .data(countryData)
+                .join("path")
+                .attr("d", path)
+                .attr("fill", "lightgray")
+                .attr("stroke", "white")
+                .attr("stroke-width", 1)
+                .on("mouseover", function(event, d) {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html("Country: " + d.properties.name)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                    d3.select(this).attr("stroke", "black").attr("stroke-width", 2);
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                    d3.select(this).attr("stroke", "white").attr("stroke-width", 1);
+                });
+
+            updateMap(wineData);
+        });
+
+        function updateMap(filteredData) {
+            const countryAveragePoints = d3.group(filteredData, d => d.country);
+            const countryAvgMap = new Map();
+            countryAveragePoints.forEach((value, key) => {
+                countryAvgMap.set(key, d3.mean(value, d => d.points));
+            });
+            
+            const mapPaths = svg.selectAll("path");
+            mapPaths.attr("fill", d => {
+                const countryName = d.properties.name;
+                const avgPoints = countryAvgMap.get(countryName);
+                return avgPoints ? colorScale(avgPoints) : 'lightgray';
+            });
+            
+            mapPaths.on("mouseover", function(event, d) {
+                const countryName = d.properties.name;
+                const avgPoints = countryAvgMap.get(countryName);
+                
+                tooltip.transition().duration(200).style("opacity", .9);
+                tooltip.html(`Country: ${countryName}<br/>Rating: ${avgPoints ? avgPoints.toFixed(2) : 'N/A'}`)
+                    .style("left", (event.pageX + 10) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                d3.select(this).attr("stroke", "black").attr("stroke-width", 2);
+            });
+        }
+        
+        function updateCharts(filteredData) {
+            // Pie Chart Data
+            const countryCounts = d3.rollups(filteredData, v => v.length, d => d.country).sort((a,b) => d3.descending(a[1], b[1]));
+            const pieLabels = countryCounts.map(d => d[0]);
+            const pieData = countryCounts.map(d => d[1]);
+            const pieColors = d3.schemeCategory10;
+
+            if (countryPieChart) countryPieChart.destroy();
+            countryPieChart = new Chart(countryPieCtx, {
+                type: 'pie',
+                data: {
+                    labels: pieLabels,
+                    datasets: [{
+                        data: pieData,
+                        backgroundColor: pieColors,
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right' },
+                        title: { display: false }
+                    }
+                }
+            });
+
+            // Histogram Data
+            const ratings = filteredData.map(d => d.points);
+            const histogramData = d3.histogram().domain([80, 100]).thresholds(20)(ratings);
+            const histLabels = histogramData.map(d => d.x0);
+            const histCounts = histogramData.map(d => d.length);
+
+            if (ratingHistogram) ratingHistogram.destroy();
+            ratingHistogram = new Chart(ratingHistCtx, {
+                type: 'bar',
+                data: {
+                    labels: histLabels,
+                    datasets: [{
+                        label: 'Number of Wines',
+                        data: histCounts,
+                        backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Rating (Points)' } },
+                        y: { title: { display: true, text: 'Count' } }
+                    }
+                }
+            });
+        }
+        
+        function updateDashboard(filteredData) {
+            const totalWines = filteredData.length;
+            const avgPrice = totalWines > 0 ? (filteredData.reduce((sum, wine) => sum + wine.price, 0) / totalWines) : 0;
+            const avgPoints = totalWines > 0 ? (filteredData.reduce((sum, wine) => sum + wine.points, 0) / totalWines) : 0;
+
+            document.getElementById('avg-price-metric').textContent = `$${avgPrice.toFixed(2)}`;
+            document.getElementById('avg-points-metric').textContent = avgPoints.toFixed(2);
+            document.getElementById('total-wines-metric').textContent = totalWines;
+            
+            updateMap(filteredData);
+            updateCharts(filteredData);
+        }
+        
+        function applyFilters() {
+            const selectedCountry = countrySelect.value;
+            const selectedVariety = varietySelect.value;
+            const maxPrice = parseInt(priceRangeInput.value);
+
+            let filtered = wineData.filter(wine => wine.price <= maxPrice);
+            
+            if (selectedCountry) {
+                filtered = filtered.filter(wine => wine.country === selectedCountry);
+            }
+            if (selectedVariety) {
+                filtered = filtered.filter(wine => wine.variety === selectedVariety);
+            }
+
+            updateDashboard(filtered);
+        }
+
+        countrySelect.addEventListener('change', applyFilters);
+        varietySelect.addEventListener('change', applyFilters);
+        priceRangeInput.addEventListener('input', () => {
+            priceValueSpan.textContent = `$${priceRangeInput.value}`;
+            applyFilters();
+        });
+
+        const predictorPriceInput = document.getElementById('predictor-price');
+        const predictButton = document.getElementById('predict-button');
+        const predictionResultDiv = document.getElementById('prediction-result');
+
+        predictButton.addEventListener('click', () => {
+            const price = parseFloat(predictorPriceInput.value);
+            if (!isNaN(price) && price >= 0) {
+                const predictedPoints = (lr_coef * price) + lr_intercept;
+                predictionResultDiv.textContent = `Predicted Rating: ${predictedPoints.toFixed(2)} Points`;
+            } else {
+                predictionResultDiv.textContent = 'Please enter a valid price.';
+            }
+        });
+
+        updateDashboard(wineData);
+    </script>
+</body>
+</html>
